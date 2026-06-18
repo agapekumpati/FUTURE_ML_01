@@ -1,76 +1,124 @@
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-# Load dataset
-df = pd.read_csv("Sample - Superstore.csv", encoding="latin1")
+# ==============================
+# 1. CREATE TIME SERIES DATA
+# ==============================
+months = pd.date_range(start="2024-01-01", periods=30, freq="ME")
 
-# Convert Order Date to datetime
-df["Order Date"] = pd.to_datetime(df["Order Date"])
+sales = np.array([
+    120,130,125,140,150,160,
+    170,165,180,190,200,210,
+    220,235,230,245,260,270,
+    285,280,295,310,320,340,
+    350,360,375,390,405,420
+])
 
-# Check missing values
-print("Missing Values:")
-print(df.isnull().sum())
+df = pd.DataFrame({"date": months, "sales": sales})
 
-# Sort by date
-df = df.sort_values("Order Date")
+# ==============================
+# 2. FEATURE ENGINEERING
+# ==============================
+df["time_index"] = np.arange(len(df))
 
-# Create monthly sales summary
-monthly_sales = (
-    df.set_index("Order Date")
-      .resample("ME")["Sales"]
-      .sum()
-      .reset_index()
-)
+df["month"] = df["date"].dt.month
 
-# Create numeric feature
-monthly_sales["Month_Number"] = range(len(monthly_sales))
+df["sin_month"] = np.sin(2 * np.pi * df["month"] / 12)
+df["cos_month"] = np.cos(2 * np.pi * df["month"] / 12)
 
-X = monthly_sales[["Month_Number"]]
-y = monthly_sales["Sales"]
+# ==============================
+# 3. TRAIN / TEST SPLIT
+# ==============================
+train_size = int(len(df) * 0.8)
 
-# Train model
+train = df.iloc[:train_size]
+test = df.iloc[train_size:]
+
+features = ["time_index", "sin_month", "cos_month"]
+
+X_train = train[features]
+y_train = train["sales"]
+
+X_test = test[features]
+y_test = test["sales"]
+
+# ==============================
+# 4. MODEL TRAINING
+# ==============================
 model = LinearRegression()
-model.fit(X, y)
+model.fit(X_train, y_train)
 
-# Predictions
-monthly_sales["Predicted_Sales"] = model.predict(X)
+# ==============================
+# 5. PREDICTIONS
+# ==============================
+y_pred = model.predict(X_test)
 
-# Evaluation
-mae = mean_absolute_error(y, monthly_sales["Predicted_Sales"])
-mse = mean_squared_error(y, monthly_sales["Predicted_Sales"])
-r2 = r2_score(y, monthly_sales["Predicted_Sales"])
+# ==============================
+# 6. EVALUATION
+# ==============================
+mae = mean_absolute_error(y_test, y_pred)
+rmse = np.sqrt(mean_squared_error(y_test, y_pred))
 
-print("\nModel Evaluation")
-print("MAE =", round(mae, 2))
-print("MSE =", round(mse, 2))
-print("R2 Score =", round(r2, 4))
+print("\nMODEL PERFORMANCE")
+print("------------------")
+print("MAE  :", round(mae, 2))
+print("RMSE :", round(rmse, 2))
 
-# Plot
-plt.figure(figsize=(12, 6))
-plt.plot(
-    monthly_sales["Order Date"],
-    monthly_sales["Sales"],
-    label="Actual Sales"
-)
+# ==============================
+# 7. FUTURE FORECAST (12 MONTHS)
+# ==============================
+future_dates = pd.date_range(start=df["date"].iloc[-1], periods=13, freq="ME")[1:]
 
-plt.plot(
-    monthly_sales["Order Date"],
-    monthly_sales["Predicted_Sales"],
-    label="Predicted Sales"
-)
+future_df = pd.DataFrame({"date": future_dates})
 
-plt.title("Sales Forecasting - Actual vs Predicted")
+future_df["time_index"] = np.arange(len(df), len(df) + 12)
+future_df["month"] = future_df["date"].dt.month
+
+future_df["sin_month"] = np.sin(2 * np.pi * future_df["month"] / 12)
+future_df["cos_month"] = np.cos(2 * np.pi * future_df["month"] / 12)
+
+future_X = future_df[features]
+future_pred = model.predict(future_X)
+
+# ==============================
+# 8. CONFIDENCE INTERVAL
+# ==============================
+residuals = y_train - model.predict(X_train)
+std_dev = np.std(residuals)
+
+upper = future_pred + 1.96 * std_dev
+lower = future_pred - 1.96 * std_dev
+
+# ==============================
+# 9. VISUALIZATION + SAVE GRAPH
+# ==============================
+plt.figure(figsize=(14,6))
+
+# Actual sales
+plt.plot(df["date"], df["sales"], label="Actual Sales", marker="o")
+
+# Test predictions
+plt.plot(test["date"], y_pred, label="Test Predictions", marker="o")
+
+# Future forecast
+plt.plot(future_dates, future_pred, label="Forecast", linestyle="dashed", marker="o")
+
+# Confidence interval
+plt.fill_between(future_dates, lower, upper, color="gray", alpha=0.2, label="Confidence Interval")
+
+plt.title("Industry-Level Sales Forecasting (Trend + Seasonality Model)")
 plt.xlabel("Date")
 plt.ylabel("Sales")
 plt.legend()
-plt.grid(True)
+plt.grid()
+plt.xticks(rotation=45)
+plt.tight_layout()
 
-# Save graph
-plt.savefig("forecast_graph.png")
+# ✅ SAVE IMAGE FILE
+plt.savefig("forecast_graph.png", dpi=300, bbox_inches="tight")
 
-# Show graph
+# SHOW PLOT
 plt.show()
-
-print("\nForecast completed successfully!")
